@@ -1,40 +1,49 @@
-from collections import deque
+from collections import deque, namedtuple
 
 BLOCK_SIZE = 32
 RANS_L = 1 << (BLOCK_SIZE - 1)
 TAIL_BITS = (1 << BLOCK_SIZE) - 1
 
 
+rANSstate = namedtuple('rANSstate', 'Buffer Stream')
+
+
 def init_state():
-    return RANS_L, deque()
+    return rANSstate(Buffer=RANS_L, Stream=deque())
 
 
-def encode(x: tuple, start: int, freq: int, precision: int):
+def encode(state: rANSstate, start: int, freq: int, precision: int):
     assert freq != 0
-    x_max = ((RANS_L >> precision) << BLOCK_SIZE) * freq
-    if x[0] >= x_max:
-        x[1].appendleft(x[0] & TAIL_BITS)
-        x = x[0] >> BLOCK_SIZE, x[1]
-        assert x[0] < x_max
-    return ((x[0] // freq) << precision) + (x[0] % freq) + start, x[1]
+    buffer_ubound = ((RANS_L >> precision) << BLOCK_SIZE) * freq
+    if state.Buffer >= buffer_ubound:
+        state.Stream.appendleft(state.Buffer & TAIL_BITS)
+        state = rANSstate(Buffer=state.Buffer >> BLOCK_SIZE,
+                          Stream=state.Stream)
+        assert state.Buffer < buffer_ubound
+    return rANSstate(Buffer=((state.Buffer // freq) << precision) +
+                            (state.Buffer % freq) + start,
+                     Stream=state.Stream)
 
 
-def decode(x: tuple, start: int, freq: int, precision: int):
+def decode(state: rANSstate, start: int, freq: int, precision: int):
     mask = (1 << precision) - 1
-    ccf = x[0] & mask
-    x = freq * (x[0] >> precision) + (x[0] & mask) - start, x[1]
-    if x[0] < RANS_L:
-        assert len(x[1]) > 0
-        block = x[1].popleft()
-        x = (x[0] << BLOCK_SIZE) | block, x[1]
-        assert x[0] >= RANS_L
-
-    return ccf, x
-
-
-def flatten_state(x: tuple):
-    return [x[0] >> BLOCK_SIZE, x[0]] + list(x[1])
+    ccf = state.Buffer & mask
+    state = rANSstate(Buffer=freq * (state.Buffer >> precision) +
+                      (state.Buffer & mask) - start,
+                      Stream=state.Stream)
+    if state.Buffer < RANS_L:
+        assert state.Stream
+        block = state.Stream.popleft()
+        state = rANSstate(Buffer=(state.Buffer << BLOCK_SIZE) | block,
+                          Stream=state.Stream)
+        assert state.Buffer >= RANS_L
+    return ccf, state
 
 
-def unflatten_state(x: list):
-    return (x[0] << BLOCK_SIZE) | x[1], deque(x[2:])
+def flatten_state(state: rANSstate):
+    return [state.Buffer >> BLOCK_SIZE, state.Buffer] + list(state.Stream)
+
+
+def unflatten_state(arr: list):
+    return rANSstate(Buffer=(arr[0] << BLOCK_SIZE) | arr[1],
+                     Stream=deque(arr[2:]))

@@ -17,7 +17,6 @@ def test():
     state = rans.init_state()
     for start, freq in zip(starts, freqs):
         state = rans.encode(state, start, freq, K)
-
     coded_arr = rans.flatten_state(state)
     print("Actual output size: " + str(32 * len(coded_arr)) + " bits.")
 
@@ -29,4 +28,4 @@ def test():
     assert not state[1]
 
 
-test()
+# test()
