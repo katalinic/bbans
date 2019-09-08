@@ -1,5 +1,6 @@
 """Based on https://github.com/rygorous/ryg_rans/blob/master/rans64.h"""
 from collections import deque, namedtuple
+from typing import Sequence, Tuple
 
 BLOCK_SIZE = 32
 RANS_L = 1 << (BLOCK_SIZE - 1)
@@ -13,7 +14,10 @@ def init_state():
     return rANSstate(Buffer=RANS_L, Stream=deque())
 
 
-def encode(state: rANSstate, start: int, freq: int, precision: int):
+def encode(state: rANSstate,
+           start: int,
+           freq: int,
+           precision: int) -> rANSstate:
     assert freq != 0
     buffer_ubound = ((RANS_L >> precision) << BLOCK_SIZE) * freq
     if state.Buffer >= buffer_ubound:
@@ -26,7 +30,10 @@ def encode(state: rANSstate, start: int, freq: int, precision: int):
                      Stream=state.Stream)
 
 
-def decode(state: rANSstate, start: int, freq: int, precision: int):
+def decode(state: rANSstate,
+           start: int,
+           freq: int,
+           precision: int) -> Tuple[int, rANSstate]:
     mask = (1 << precision) - 1
     ccf = state.Buffer & mask
     state = rANSstate(Buffer=freq * (state.Buffer >> precision) +
@@ -41,11 +48,11 @@ def decode(state: rANSstate, start: int, freq: int, precision: int):
     return ccf, state
 
 
-def flatten_state(state: rANSstate):
+def flatten_state(state: rANSstate) -> Sequence[int]:
     return ([state.Buffer & TAIL_BITS, state.Buffer >> BLOCK_SIZE] +
             list(state.Stream))
 
 
-def unflatten_state(arr: list):
+def unflatten_state(arr: Sequence[int]) -> rANSstate:
     return rANSstate(Buffer=arr[0] | (arr[1] << BLOCK_SIZE),
                      Stream=deque(arr[2:]))
