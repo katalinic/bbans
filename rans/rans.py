@@ -1,3 +1,4 @@
+"""Based on https://github.com/rygorous/ryg_rans/blob/master/rans64.h"""
 from collections import deque, namedtuple
 
 BLOCK_SIZE = 32
@@ -41,9 +42,10 @@ def decode(state: rANSstate, start: int, freq: int, precision: int):
 
 
 def flatten_state(state: rANSstate):
-    return [state.Buffer >> BLOCK_SIZE, state.Buffer] + list(state.Stream)
+    return ([state.Buffer & TAIL_BITS, state.Buffer >> BLOCK_SIZE] +
+            list(state.Stream))
 
 
 def unflatten_state(arr: list):
-    return rANSstate(Buffer=(arr[0] << BLOCK_SIZE) | arr[1],
+    return rANSstate(Buffer=arr[0] | (arr[1] << BLOCK_SIZE),
                      Stream=deque(arr[2:]))
