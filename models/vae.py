@@ -1,5 +1,5 @@
 import os
-from typing import Callable
+from typing import Callable, Tuple
 
 import numpy as np
 import tensorflow as tf
@@ -46,8 +46,10 @@ class GaussianVAE(Model):
     def prior(self) -> np.ndarray:
         return self._prior_fn()
 
-    def posterior(self, obs: np.ndarray) -> np.ndarray:
-        return self._posterior_fn(obs)
+    def posterior(self, obs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        dist_params = self._posterior_fn(obs)
+        mean, logstd = np.split(dist_params, 2, axis=-1)
+        return mean, np.exp(logstd)
 
     def generate(self, latent: np.ndarray) -> np.ndarray:
         return self._generator_fn(latent)
