@@ -42,8 +42,8 @@ class DiagonalGaussianEntropyModel(EntropyModel):
         assert quantised_dists.ndim == 2
 
         num_symbols = symbol.size
-        starts = quantised_dists[np.arange(num_symbols), symbol + 1]
-        freqs = starts - quantised_dists[np.arange(num_symbols), symbol]
+        starts = quantised_dists[np.arange(num_symbols), symbol]
+        freqs = quantised_dists[np.arange(num_symbols), symbol + 1] - starts
 
         starts = np.ravel(starts)
         freqs = np.ravel(freqs)
