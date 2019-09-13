@@ -2,7 +2,7 @@
 import numpy as np
 import tensorflow as tf
 
-from bbans import encode
+from bbans import encode, decode
 from entropy_model import DiagonalGaussianEntropyModel
 import mnist_utils
 from models.vae import (GaussianVAE, diagonal_gaussian_encoder,
@@ -26,10 +26,16 @@ test_data = mnist_utils.binarise(test_data)
 observation = np.expand_dims(test_data[0], axis=0)
 assert observation.shape == (1, 784)
 
-q = MaxEntropyGaussianQuantiser(precision=8)
-ent_model = DiagonalGaussianEntropyModel(model.posterior, q, 14)
+prior_prec = 8
+latent_prec = 14
 
-state = init_state()
-latent_to_encode = np.random.randint(0, 1 << 8, 40)
+q = MaxEntropyGaussianQuantiser(precision=prior_prec)
+ent_model = DiagonalGaussianEntropyModel(model.posterior, q, latent_prec)
 
-encode(state, latent_to_encode, ent_model, 14, observation)
+_state = np.random.randint(0, 2, 400)
+state = init_state(_state)
+latent_to_encode = np.random.randint(0, 1 << prior_prec, 40)
+
+state = encode(state, latent_to_encode, ent_model, latent_prec, observation)
+
+state, symbol = decode(state, ent_model, latent_prec, observation)

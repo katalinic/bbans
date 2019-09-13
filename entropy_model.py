@@ -15,8 +15,13 @@ class EntropyModel:
         self.precision = precision
 
     @abc.abstractmethod
-    def forward(self, *args):
+    def forward(self, *model_inputs):
         """Returns starts, freqs."""
+        pass
+
+    @abc.abstractmethod
+    def backward(self, cf, *model_inputs):
+        """Returns start, freq, symbol, done."""
         pass
 
 
@@ -26,6 +31,8 @@ class DiagonalGaussianEntropyModel(EntropyModel):
             print("Missing quantiser for continuous distribution.")
             return
         super().__init__(distribution_fn, quantiser, precision)
+        self._cached_params = None
+        self._decoding_idx = -1
 
     def forward(self, symbol, *model_inputs):
         assert np.issubdtype(symbol.dtype, numbers.Integral)
@@ -52,3 +59,28 @@ class DiagonalGaussianEntropyModel(EntropyModel):
         freqs[freqs == 0] = 1
 
         return starts.tolist(), freqs.tolist()
+
+    def backward(self, cf, *model_inputs):
+        assert isinstance(cf, numbers.Integral), type(cf)
+        assert len(model_inputs) == 1
+
+        if self._cached_params is not None:
+            mean, std = self._cached_params
+        else:
+            mean, std = self.distribution_fn(model_inputs[0])
+            mean = np.ravel(mean)
+            std = np.ravel(std)
+            self._cached_params = (mean, std)
+            self._decoding_idx = len(mean) - 1
+
+        m, s = mean[self._decoding_idx], std[self._decoding_idx]
+        symbol, starts = self.quantiser.quantise_backward(
+            norm(m, s), cf, self.precision)
+        assert starts.ndim == 1
+        assert starts.size == 2
+
+        freq = max(1, int(starts[1] - starts[0]))
+        start = min((1 << self.precision) - 1, int(starts[0]))
+        self._decoding_idx -= 1
+        
+        return start, freq, int(symbol), bool(self._decoding_idx < 0)

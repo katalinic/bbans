@@ -10,8 +10,11 @@ TAIL_BITS = (1 << BLOCK_SIZE) - 1
 rANSstate = namedtuple('rANSstate', 'Buffer Stream')
 
 
-def init_state():
-    return rANSstate(Buffer=RANS_L, Stream=deque())
+def init_state(state: list = None):
+    if state is None:
+        return rANSstate(Buffer=RANS_L, Stream=deque())
+    else:
+        return rANSstate(Buffer=RANS_L, Stream=deque(state))
 
 
 def encode(state: rANSstate,
@@ -46,6 +49,10 @@ def decode(state: rANSstate,
                           Stream=state.Stream)
         assert state.Buffer >= RANS_L
     return ccf, state
+
+
+def peek(state: rANSstate, precision: int) -> int:
+    return state.Buffer & ((1 << precision) - 1)
 
 
 def flatten_state(state: rANSstate) -> Sequence[int]:
