@@ -19,6 +19,14 @@ class Quantiser:
     def quantise_backward(self, dist, cf, target_precision):
         pass
 
+    @abc.abstractmethod
+    def to_discrete(self, continuous_symbol):
+        pass
+
+    @abc.abstractmethod
+    def to_continuous(self, discrete_symbol):
+        pass
+
 
 class MaxEntropyGaussianQuantiser(Quantiser):
     def __init__(self, precision):
@@ -36,7 +44,14 @@ class MaxEntropyGaussianQuantiser(Quantiser):
     def quantise_backward(self, dist, cf, target_precision):
         cp = (cf + 0.5) / (1 << target_precision)
         x = dist.ppf(cp)
-        idx = np.searchsorted(self._bucket_centres, x, 'right') - 1
+        idx = np.searchsorted(self._bucket_endpoints, x, 'right') - 1
         return idx, np.around(dist.cdf(
             self._bucket_endpoints[idx: idx + 2]) * (1 << target_precision)
             ).astype(int)
+
+    def to_discrete(self, continuous_symbol):
+        return np.searchsorted(
+            self._bucket_endpoints, continuous_symbol, 'right') - 1
+
+    def to_continuous(self, discrete_symbol):
+        return self._bucket_centres[discrete_symbol]

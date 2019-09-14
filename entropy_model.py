@@ -36,51 +36,105 @@ class DiagonalGaussianEntropyModel(EntropyModel):
 
     def forward(self, symbol, *model_inputs):
         assert np.issubdtype(symbol.dtype, numbers.Integral)
-        assert symbol.ndim == 1
-        assert len(model_inputs) == 1
 
-        mean, std = self.distribution_fn(model_inputs[0])
+        symbol = self.quantiser.to_discrete(symbol)
+
+        mean, std = self.distribution_fn(*model_inputs)
         mean = np.ravel(mean)
         std = np.ravel(std)
 
         quantised_dists = [self.quantiser.quantise(
             norm(m, s), self.precision) for m, s in zip(mean, std)]
         quantised_dists = np.array(quantised_dists)
-        assert quantised_dists.ndim == 2
 
         num_symbols = symbol.size
         starts = quantised_dists[np.arange(num_symbols), symbol]
         freqs = quantised_dists[np.arange(num_symbols), symbol + 1] - starts
-
         starts = np.ravel(starts)
         freqs = np.ravel(freqs)
-
-        starts[starts == 1 << self.precision] = (1 << self.precision) - 1
-        freqs[freqs == 0] = 1
 
         return starts.tolist(), freqs.tolist()
 
     def backward(self, cf, *model_inputs):
         assert isinstance(cf, numbers.Integral), type(cf)
-        assert len(model_inputs) == 1
 
         if self._cached_params is not None:
             mean, std = self._cached_params
         else:
-            mean, std = self.distribution_fn(model_inputs[0])
+            mean, std = self.distribution_fn(*model_inputs)
             mean = np.ravel(mean)
             std = np.ravel(std)
             self._cached_params = (mean, std)
-            self._decoding_idx = len(mean) - 1
+            self._decoding_idx = 0
 
         m, s = mean[self._decoding_idx], std[self._decoding_idx]
         symbol, starts = self.quantiser.quantise_backward(
             norm(m, s), cf, self.precision)
-        assert starts.ndim == 1
-        assert starts.size == 2
 
-        freq = max(1, int(starts[1] - starts[0]))
-        start = min((1 << self.precision) - 1, int(starts[0]))
-        self._decoding_idx -= 1
-        
-        return start, freq, int(symbol), bool(self._decoding_idx < 0)
+        start = starts[0]
+        freq = starts[1] - starts[0]
+
+        self._decoding_idx += 1
+        if self._decoding_idx == len(mean):
+            self._cached_params = None
+
+        symbol = self.quantiser.to_continuous(symbol)
+        return start, freq, symbol, bool(self._decoding_idx == len(mean))
+
+
+class BernoulliEntropyModel(EntropyModel):
+    def __init__(self, distribution_fn, quantiser=None, precision=12):
+        super().__init__(distribution_fn, quantiser, precision)
+        self._cached_params = None
+        self._decoding_idx = -1
+
+    def forward(self, symbol, *model_inputs):
+        assert np.issubdtype(symbol.dtype, numbers.Integral)
+        symbol = symbol.ravel()
+
+        p1 = self.distribution_fn(*model_inputs).ravel()
+        probs = np.column_stack((1 - p1, p1))
+
+        starts, freqs = [], []
+        for p, s in zip(probs, symbol):
+            cdf = create_categorical_buckets(p, self.precision).astype(int)
+            starts.append(cdf[s])
+            freqs.append(cdf[s + 1] - cdf[s])
+
+        return starts, freqs
+
+    def backward(self, cf, *model_inputs):
+        assert isinstance(cf, numbers.Integral), type(cf)
+
+        if self._cached_params is not None:
+            p1 = self._cached_params
+        else:
+            p1 = self.distribution_fn(*model_inputs)
+            p1 = np.ravel(p1)
+            self._cached_params = p1
+            self._decoding_idx = 0
+
+        _p1 = p1[self._decoding_idx]
+        probs = np.array([1 - _p1, _p1])
+
+        cdfs = create_categorical_buckets(probs, self.precision).astype(int)
+        symbol = np.searchsorted(cdfs, cf, 'right') - 1
+        start = cdfs[symbol]
+        freq = cdfs[symbol + 1] - start
+
+        self._decoding_idx += 1
+        if self._decoding_idx == len(p1):
+            self._cached_params = None
+
+        return start, freq, symbol, bool(self._decoding_idx == len(p1))
+
+
+def create_categorical_buckets(probs, precision):
+    buckets = np.rint(
+        probs * ((1 << precision) - len(probs))) + np.ones(probs.shape)
+    bucket_sum = sum(buckets)
+    if not bucket_sum == 1 << precision:
+        i = np.argmax(buckets)
+        buckets[i] += (1 << precision) - bucket_sum
+    assert sum(buckets) == 1 << precision
+    return np.insert(np.cumsum(buckets), 0, 0)

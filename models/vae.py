@@ -21,24 +21,26 @@ class GaussianVAE(Model):
 
         tf.set_random_seed(seed)
 
-        obs = tf.placeholder(tf.float32, [None, obs_dim])
-        latent_dist_params = encoder(obs, latent_dim)
+        obs_pl = tf.placeholder(tf.float32, [None, obs_dim])
+        latent_pl = tf.placeholder(tf.float32, [None, latent_dim])
+        latent_dist_params = encoder(obs_pl, latent_dim)
         latent = self._build_sampled_latent(latent_dist_params)
         generated_dist_params = decoder(latent)
         _fixed_prior = tf.random_normal([1, latent_dim])
+        _generated_dist_params = decoder(latent_pl)
 
         loss = self._kl_divergence(latent_dist_params)
-        loss += decoder_loss(obs, generated_dist_params)
+        loss += decoder_loss(obs_pl, generated_dist_params)
         train_op = optimiser.minimize(loss)
 
         session = tf.Session()
         self._prior_fn = session.make_callable(_fixed_prior)
         self._posterior_fn = session.make_callable(
-            latent_dist_params, [obs])
+            latent_dist_params, [obs_pl])
         self._generator_fn = session.make_callable(
-            generated_dist_params, [obs])
-        self._loss_fn = session.make_callable(loss, [obs])
-        self._train_fn = session.make_callable(train_op, [obs])
+            _generated_dist_params, [latent_pl])
+        self._loss_fn = session.make_callable(loss, [obs_pl])
+        self._train_fn = session.make_callable(train_op, [obs_pl])
         session.run(tf.global_variables_initializer())
         self.session = session
         self.saver = tf.train.Saver()
@@ -47,12 +49,16 @@ class GaussianVAE(Model):
         return self._prior_fn()
 
     def posterior(self, obs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        if obs.ndim == 1:
+            obs = np.expand_dims(obs, axis=0)
         dist_params = self._posterior_fn(obs)
         mean, logstd = np.split(dist_params, 2, axis=-1)
         return mean, np.exp(logstd)
 
     def generate(self, latent: np.ndarray) -> np.ndarray:
-        return self._generator_fn(latent)
+        if latent.ndim == 1:
+            latent = np.expand_dims(latent, axis=0)
+        return sigmoid(self._generator_fn(latent))
 
     def elbo(self, data: np.ndarray) -> float:
         return self._loss_fn(data)
@@ -102,3 +108,7 @@ def sigmoid_cross_entropy_loss(targets, logits):
     cross_entropy = tf.reduce_mean(
         tf.reduce_sum(cross_entropy_per_logit, axis=1))
     return cross_entropy
+
+
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
