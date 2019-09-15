@@ -2,7 +2,7 @@ import abc
 import numbers
 
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import norm, bernoulli
 
 
 class EntropyModel:
@@ -43,13 +43,13 @@ class DiagonalGaussianEntropyModel(EntropyModel):
         mean = np.ravel(mean)
         std = np.ravel(std)
 
-        quantised_dists = [self.quantiser.quantise(
+        cdfs = [self.quantiser.quantise(
             norm(m, s), self.precision) for m, s in zip(mean, std)]
-        quantised_dists = np.array(quantised_dists)
+        cdfs = np.asarray(cdfs)
 
         num_symbols = symbol.size
-        starts = quantised_dists[np.arange(num_symbols), symbol]
-        freqs = quantised_dists[np.arange(num_symbols), symbol + 1] - starts
+        starts = cdfs[np.arange(num_symbols), symbol]
+        freqs = cdfs[np.arange(num_symbols), symbol + 1] - starts
         starts = np.ravel(starts)
         freqs = np.ravel(freqs)
 
@@ -68,11 +68,11 @@ class DiagonalGaussianEntropyModel(EntropyModel):
             self._decoding_idx = 0
 
         m, s = mean[self._decoding_idx], std[self._decoding_idx]
-        symbol, starts = self.quantiser.quantise_backward(
+        symbol, cdf = self.quantiser.quantise_backward(
             norm(m, s), cf, self.precision)
 
-        start = starts[0]
-        freq = starts[1] - starts[0]
+        start = cdf[0]
+        freq = cdf[1] - start
 
         self._decoding_idx += 1
         if self._decoding_idx == len(mean):
@@ -93,11 +93,10 @@ class BernoulliEntropyModel(EntropyModel):
         symbol = symbol.ravel()
 
         p1 = self.distribution_fn(*model_inputs).ravel()
-        probs = np.column_stack((1 - p1, p1))
 
         starts, freqs = [], []
-        for p, s in zip(probs, symbol):
-            cdf = create_categorical_buckets(p, self.precision).astype(int)
+        for p, s in zip(p1, symbol):
+            cdf = self._cdf(p)
             starts.append(cdf[s])
             freqs.append(cdf[s + 1] - cdf[s])
 
@@ -115,12 +114,11 @@ class BernoulliEntropyModel(EntropyModel):
             self._decoding_idx = 0
 
         _p1 = p1[self._decoding_idx]
-        probs = np.array([1 - _p1, _p1])
+        cdf = self._cdf(_p1)
+        symbol = np.searchsorted(cdf, cf, 'right') - 1
 
-        cdfs = create_categorical_buckets(probs, self.precision).astype(int)
-        symbol = np.searchsorted(cdfs, cf, 'right') - 1
-        start = cdfs[symbol]
-        freq = cdfs[symbol + 1] - start
+        start = cdf[symbol]
+        freq = cdf[symbol + 1] - start
 
         self._decoding_idx += 1
         if self._decoding_idx == len(p1):
@@ -128,13 +126,9 @@ class BernoulliEntropyModel(EntropyModel):
 
         return start, freq, symbol, bool(self._decoding_idx == len(p1))
 
-
-def create_categorical_buckets(probs, precision):
-    buckets = np.rint(
-        probs * ((1 << precision) - len(probs))) + np.ones(probs.shape)
-    bucket_sum = sum(buckets)
-    if not bucket_sum == 1 << precision:
-        i = np.argmax(buckets)
-        buckets[i] += (1 << precision) - bucket_sum
-    assert sum(buckets) == 1 << precision
-    return np.insert(np.cumsum(buckets), 0, 0)
+    def _cdf(self, p1):
+        cdf = bernoulli.cdf([0, 1], p1) * (1 << self.precision)
+        cdf = np.insert(np.around(cdf).astype(int), 0, 0)
+        # Prevent overflow.
+        cdf[1] = np.clip(cdf[1], 1, (1 << self.precision) - 1)
+        return cdf

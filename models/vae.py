@@ -31,6 +31,7 @@ class GaussianVAE(Model):
 
         loss = self._kl_divergence(latent_dist_params)
         loss += decoder_loss(obs_pl, generated_dist_params)
+        loss *= np.log2(np.e)
         train_op = optimiser.minimize(loss)
 
         session = tf.Session()

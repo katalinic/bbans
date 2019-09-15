@@ -13,8 +13,10 @@ parser.add_argument('-t', '--training', default=False, action="store_true",
 parser.add_argument('-e', '--epochs', default=20, type=int,
                     help='Number of training epochs.')
 parser.add_argument('-b', '--batch_size', default=100, type=int,
-                    help='Number of positions to click.')
-parser.add_argument('-d', '--dir', default='./saved_models', type=str,
+                    help='Training batch size.')
+parser.add_argument('-s', '--seed', default=42, type=int,
+                    help='TensorFlow random seed.')
+parser.add_argument('-d', '--dir', default='./saved_models/', type=str,
                     help='Directory of saved models.')
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -29,7 +31,7 @@ def train(args):
         decoder=bernoulli_decoder,
         decoder_loss=sigmoid_cross_entropy_loss,
         optimiser=tf.train.AdamOptimizer(1e-3),
-        seed=1)
+        seed=args.seed)
 
     data = mnist_utils.load_train()
     data = mnist_utils.binarise(data)
@@ -43,7 +45,7 @@ def train(args):
             model.train(batch)
         print("Completed epoch {} of {}.".format(epoch, args.epochs))
         elbo = model.elbo(test_data)
-        print("ELBO: {:2f} - ELBO / dim {:2f}".format(elbo, elbo / 784))
+        print("ELBO / pixel: {:.3f} bits.".format(elbo / 784.))
         model.save_model(args.dir)
 
 
@@ -55,14 +57,14 @@ def test(args):
         decoder=bernoulli_decoder,
         decoder_loss=sigmoid_cross_entropy_loss,
         optimiser=tf.train.AdamOptimizer(1e-3),
-        seed=0)
+        seed=args.seed)
     model.load_model(args.dir)
 
     test_data = mnist_utils.load_test()
     test_data = mnist_utils.binarise(test_data)
 
     elbo = model.elbo(test_data)
-    print("ELBO: {:2f} - ELBO / dim {:2f}".format(elbo, elbo / 784))
+    print("ELBO / pixel: {:.3f} bits.".format(elbo / 784.))
 
 
 if __name__ == '__main__':

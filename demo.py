@@ -1,3 +1,6 @@
+import argparse
+import os
+
 import numpy as np
 import tensorflow as tf
 
@@ -8,6 +11,15 @@ from models.vae import (GaussianVAE, diagonal_gaussian_encoder,
                         bernoulli_decoder, sigmoid_cross_entropy_loss)
 from quantiser import MaxEntropyGaussianQuantiser
 from rans.rans import init_state, flatten_state, unflatten_state
+
+parser = argparse.ArgumentParser(description='Configuration.')
+parser.add_argument('-s', '--seed', default=42, type=int,
+                    help='RNG seed.')
+parser.add_argument('-n', '--num_imgs', default=100, type=int,
+                    help='Number of images to encode and decode.')
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 model = GaussianVAE(
     obs_dim=784,
@@ -37,36 +49,47 @@ posterior_ent_model = DiagonalGaussianEntropyModel(
     model.posterior, q, latent_prec)
 obs_ent_model = BernoulliEntropyModel(model.generate, None, obs_prec)
 
-rng = np.random.RandomState(0)
-init_bits = rng.randint(low=1 << 16, high=1 << 31, size=20, dtype=np.uint32)
-state = init_state()
-state = unflatten_state(init_bits)
 
-rng.shuffle(test_data)
-num_imgs = 200
-for i, image in enumerate(test_data[:num_imgs]):
-    state = bbans_encode(state,
-                         np.expand_dims(image, axis=0),
-                         prior_ent_model,
-                         posterior_ent_model,
-                         obs_ent_model,
-                         prior_prec,
-                         latent_prec,
-                         obs_prec)
+def run(args):
+    rng = np.random.RandomState(args.seed)
+    init_bits = rng.randint(
+        low=1 << 16, high=1 << 31, size=20, dtype=np.uint32)
+    state = init_state()
+    state = unflatten_state(init_bits)
 
-compressed_message = flatten_state(state)
-compressed_length = 32 * (len(compressed_message) - len(init_bits))
-print("Total compressed message length of {} bits at {} bits per pixel".format(
-    compressed_length, compressed_length / (num_imgs * 784.0)))
+    test_inds = np.arange(len(test_data))
+    rng.shuffle(test_inds)
+    inds_subset = test_inds[:args.num_imgs]
 
-retrieved_images = []
-for i in range(num_imgs):
-    state, obs = bbans_decode(state,
-                              prior_ent_model,
-                              posterior_ent_model,
-                              obs_ent_model,
-                              prior_prec,
-                              latent_prec,
-                              obs_prec)
-    assert np.array_equal(test_data[num_imgs-i-1], np.array(obs))
-assert np.array_equal(flatten_state(state), init_bits)
+    for i, image in enumerate(test_data[inds_subset]):
+        state = bbans_encode(state,
+                             np.expand_dims(image, axis=0),
+                             prior_ent_model,
+                             posterior_ent_model,
+                             obs_ent_model,
+                             prior_prec,
+                             latent_prec,
+                             obs_prec)
+
+    compressed_message = flatten_state(state)
+    compressed_length = 32 * (len(compressed_message) - len(init_bits))
+    print("Compressed message length is {:.3f} bits per pixel.".format(
+        compressed_length / (args.num_imgs * 784.0)))
+
+    for i in range(args.num_imgs):
+        state, obs = bbans_decode(state,
+                                  prior_ent_model,
+                                  posterior_ent_model,
+                                  obs_ent_model,
+                                  prior_prec,
+                                  latent_prec,
+                                  obs_prec)
+        expected_img = test_data[inds_subset][args.num_imgs-i-1]
+        assert np.array_equal(expected_img, np.array(obs))
+    assert np.array_equal(flatten_state(state), init_bits)
+    print("Reconstructed all compressed examples, as well as initial bits.")
+
+
+if __name__ == '__main__':
+    args = parser.parse_args()
+    run(args)
