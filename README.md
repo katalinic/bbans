@@ -1,4 +1,4 @@
-# bbans
+# bb-ans
 TF BB-ANS.
 
 TensorFlow implementation of [BB-ANS](https://arxiv.org/pdf/1901.04866.pdf) by Townsend et al.
