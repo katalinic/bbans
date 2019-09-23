@@ -1,7 +1,7 @@
 # bb-ans
 TF BB-ANS.
 
-TensorFlow implementation of [BB-ANS](https://arxiv.org/pdf/1901.04866.pdf) by Townsend et al.
+TensorFlow implementation of [Bits Back with ANS](https://arxiv.org/pdf/1901.04866.pdf) by Townsend et al.
 
 Presently, only the binarised MNIST version is provided. The implementation draws inspiration from the [authors' code](https://github.com/bits-back/bits-back).
 
